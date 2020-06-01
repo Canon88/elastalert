@@ -1,0 +1,70 @@
+name: "Detection of Spider Crawlers"
+es_host: "es_server"
+es_port: 9200
+type: "elastalert_modules.spider.my_rules.SpiderRule"
+
+index: "zeek-other-%Y.%m.%d"
+use_strftime_index: true
+
+filter:
+- term:
+    host: "canon88.github.io"
+- term:
+    method.keyword: "GET"
+
+include: ["true_client_ip", "host", "uri", "uri_path", "user_agent"]
+
+timestamp:
+  format: false
+timestamp_field: "@timestamp"
+
+buffer_time:
+  hours: 12
+
+run_every:
+  minutes: 10
+
+max_query_size: 10000
+scroll: true
+
+beacon:
+  max_args_length: 10
+  min_hits: 120
+  max_unique_args: 2
+  threshold_percent: 70
+  threads: 16
+  beacon_module: true
+  min_interval: 1
+  window: 2
+  user_agent: 20
+
+field:
+  true_client_ip:
+    alias: src_ip
+    type: [hash]
+  host:
+    alias: http_host
+    type: [hash]
+  uri_path:
+    alias: url_path
+    type: [hash]
+  uri:
+    alias: url
+  user_agent:
+    alias: user_agent
+
+output:
+  json:
+    enable: yes
+    path: /var/log/spider/spider_detect.json
+  redis:
+    enable: no
+    host: redis_server
+    port: 6379
+    db: 0
+    password: redis_password
+    key: spider:proxycheck:feeds
+    field: src_ip
+
+alert:
+- debug
