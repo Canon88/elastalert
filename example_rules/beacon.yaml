@@ -1,0 +1,72 @@
+name: "dns query beacon rule"
+es_host: "es_server"
+es_port: 9200
+type: "elastalert_modules.beacon.my_rules.BeaconRule"
+
+match_enhancements:
+- "elastalert_modules.kibana_url_enhance.AlertEnhance"
+
+index: "zeek-dns-%Y.%m.%d"
+use_strftime_index: true
+
+filter:
+- term:
+    rcode_name.keyword: "NOERROR"
+- term:
+    qtype_name.keyword: "A"
+- bool:
+    must_not:
+      - terms:
+          query.keyword: [
+            "canon88.github.io"
+          ]
+      - term:
+          id.orig_h: "8.8.8.8"
+
+include: ["id.orig_h", "query", "answers"]
+
+timestamp:
+  format: false
+
+timestamp_field: "@timestamp"
+ 
+buffer_time:
+  hours: 12
+
+run_every:
+  minutes: 60
+
+max_query_size: 10000
+scroll: true
+
+beacon:
+  min_occur: 11
+  min_interval: 5
+  min_percent: 90
+  window: 2
+  threads: 16
+
+field:
+  "@timestamp":
+    alias: timestamp
+  id.orig_h:
+    alias: src_ip
+    type: [beacon, output]
+  query:
+    alias: hostname
+    type: [beacon, output]
+  answers:
+    alias: answers
+    type: [output]
+
+analysis:
+  whois: false
+  focus_outbound: false
+
+output:
+ json:
+    enable: yes
+    path: /var/log/beacon/beacon_dns.json
+
+alert:
+- debug
