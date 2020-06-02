@@ -54,6 +54,9 @@ from .util import ts_now
 from .util import ts_to_dt
 from .util import unix_to_dt
 
+# for beacon rules by Canon 2020.02.10
+from elasticsearch import helpers
+
 
 class ElastAlerter(object):
     """ The main ElastAlert runner. This class holds all state about active rules,
@@ -583,6 +586,51 @@ class ElastAlerter(object):
 
         return {endtime: payload}
 
+    # add get_hits_beacons by Canon 2020.02.10
+    def get_hits_beacons(self, rule, starttime, endtime, index, scroll):
+        query = self.get_query(
+            rule['filter'],
+            starttime,
+            endtime,
+            timestamp_field=rule['timestamp_field'],
+            to_ts_func=rule['dt_to_unix'],
+            five=rule['five'],
+        )
+        if self.thread_data.current_es.is_atleastsixsix():
+            query['_source'] = {'includes': rule['include']}
+        else:
+            query['_source'] = {'include': rule['include']}
+
+        try:
+            if scroll:
+                res = helpers.scan(
+                    client=self.thread_data.current_es,
+                    index=index,
+                    query=query,
+                    size=rule.get('max_query_size', self.max_query_size),
+                    scroll=rule.get('scroll_keepalive', self.scroll_keepalive),
+                    request_timeout=120,
+                    ignore_unavailable=True
+                )
+                hits = [item for item in res]
+            else:
+                res = self.thread_data.current_es.search(
+                    index=index,
+                    size=rule.get('max_query_size', self.max_query_size),
+                    body=query,
+                    ignore_unavailable=True
+                )
+                hits = res['hits']['hits']
+
+            logging.debug(str(hits))
+        except ElasticsearchException as e:
+            # Elasticsearch sometimes gives us GIGANTIC error messages
+            # (so big that they will fill the entire terminal buffer)
+            if len(str(e)) > 1024:
+                e = str(e)[:1024] + '... (%d characters removed)' % (len(str(e)) - 1024)
+            self.handle_error('Error running query: %s' % (e), {'rule': rule['name'], 'query': query})
+            return None
+
     def remove_duplicate_events(self, data, rule):
         new_events = []
         for event in data:
@@ -630,6 +678,11 @@ class ElastAlerter(object):
             data = self.get_hits_terms(rule, start, end, index, rule['query_key'])
         elif rule.get('aggregation_query_element'):
             data = self.get_hits_aggregation(rule, start, end, index, rule.get('query_key', None))
+
+        # add beacon by Canon 2020.02.10
+        elif rule.get('beacon'):
+            data = self.get_hits_beacons(rule, start, end, index, rule.get('scroll'))
+        
         else:
             data = self.get_hits(rule, start, end, index, scroll)
             if data:
